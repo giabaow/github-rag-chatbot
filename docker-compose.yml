@@ -1,0 +1,58 @@
+version: "3.9"
+
+# ── Named volumes ─────────────────────────────────────────────────────────────
+# All generated data lives in Docker-managed volumes so it survives container
+# restarts and rebuilds without re-cloning or re-indexing.
+volumes:
+  repos_data:       # cloned GitHub repositories
+  vectors_data:     # ChromaDB vector collections
+  models_data:      # GPT4All model cache (~45 MB, downloaded once)
+
+# ── Services ──────────────────────────────────────────────────────────────────
+services:
+
+  # ── Main application ────────────────────────────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: github-rag-chatbot
+    restart: unless-stopped
+
+    ports:
+      - "8501:8501"       # Streamlit UI → http://localhost:8501
+
+    environment:
+      # Copy your real key from .env or set it here directly (not in VCS!)
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+
+      # Tell GPT4All where to cache the embedding model
+      - GPT4ALL_MODEL_PATH=/app/data/models
+
+      # ChromaDB telemetry opt-out
+      - ANONYMIZED_TELEMETRY=False
+
+    volumes:
+      # Persist cloned repos between restarts
+      - repos_data:/app/data/repos
+
+      # Persist ChromaDB vector indexes between restarts
+      - vectors_data:/app/data/vectors
+
+      # Persist GPT4All model so it isn't re-downloaded on every restart
+      - models_data:/app/data/models
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+    # Resource limits — tune for your machine
+    deploy:
+      resources:
+        limits:
+          memory: 4G       # GPT4All + ChromaDB + Streamlit needs headroom
+        reservations:
+          memory: 1G
